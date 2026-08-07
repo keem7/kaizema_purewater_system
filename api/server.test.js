@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { app, getSupabaseConfig } = require('./server');
+const { app, getSupabaseConfig } = require('.');
 
 test('health endpoint responds ok', async () => {
   const server = app.listen(0);
