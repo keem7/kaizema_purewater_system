@@ -1,11 +1,11 @@
 {
   "name": "kaizema-dashboard",
   "version": "1.0.0",
-  "description": "Employee and admin production dashboard with SQLite persistence",
-  "main": "backend/server.js",
+  "description": "Employee and admin production dashboard with Supabase persistence",
+  "main": "api/index.js",
   "scripts": {
-    "start": "node backend/server.js",
-    "test": "node --test backend/server.test.js"
+    "start": "node server.js",
+    "test": "node --test api/server.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.2",

@@ -9,7 +9,7 @@
 ## Structure
 
 - frontend/: browser UI assets
-- backend/: Express API and SQLite persistence
+- backend/: supabase API 
 - .env.example: environment variables for deployment
 
 ## Defaults

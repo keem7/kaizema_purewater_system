@@ -5,10 +5,20 @@ require('dotenv').config();
 
 const app = express();
 
-// Initialize Supabase Client
-const supabaseUrl = process.env.SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
+// Helper to inspect Supabase configuration safely
+function getSupabaseConfig(env = process.env) {
+  const url = env.SUPABASE_URL || '';
+  const key = env.SUPABASE_ANON_KEY || env.SUPABASE_KEY || '';
+  const mode = (url && key) ? 'supabase' : 'unconfigured';
+  return { url, key, mode };
+}
+
+// Safely create Supabase client without crashing module initialization if keys are missing
+function getSupabaseClient() {
+  const config = getSupabaseConfig();
+  if (config.mode === 'unconfigured') return null;
+  return createClient(config.url, config.key);
+}
 
 // Middleware
 app.use(express.json());
@@ -26,11 +36,15 @@ app.use(express.static(FRONTEND_DIR));
 
 // Helper config endpoint
 app.get('/health', (req, res) => {
-  res.json({ ok: true, storage: 'supabase' });
+  const config = getSupabaseConfig();
+  res.json({ ok: true, storage: config.mode });
 });
 
 // --- AUTHENTICATION ROUTE ---
 app.get('/api/auth', async (req, res) => {
+  const supabase = getSupabaseClient();
+  if (!supabase) return res.status(500).json({ error: 'Supabase credentials not configured' });
+
   const { username, password } = req.query;
   try {
     const { data, error } = await supabase
@@ -49,6 +63,9 @@ app.get('/api/auth', async (req, res) => {
 
 // --- RECORDS ROUTES ---
 app.get('/api/records', async (req, res) => {
+  const supabase = getSupabaseClient();
+  if (!supabase) return res.status(500).json({ error: 'Supabase credentials not configured' });
+
   try {
     const { data, error } = await supabase
       .from('records')
@@ -63,8 +80,11 @@ app.get('/api/records', async (req, res) => {
 });
 
 app.post('/api/records', async (req, res) => {
+  const supabase = getSupabaseClient();
+  if (!supabase) return res.status(500).json({ error: 'Supabase credentials not configured' });
+
   const { date, produced, sold, issues } = req.body;
-  const revenue = sold * 10;
+  const revenue = Number(sold || 0) * 10;
   
   try {
     const { data, error } = await supabase
@@ -80,6 +100,9 @@ app.post('/api/records', async (req, res) => {
 });
 
 app.delete('/api/records/:date', async (req, res) => {
+  const supabase = getSupabaseClient();
+  if (!supabase) return res.status(500).json({ error: 'Supabase credentials not configured' });
+
   try {
     const { error } = await supabase
       .from('records')
@@ -95,6 +118,9 @@ app.delete('/api/records/:date', async (req, res) => {
 
 // --- USERS ROUTES ---
 app.get('/api/users', async (req, res) => {
+  const supabase = getSupabaseClient();
+  if (!supabase) return res.status(500).json({ error: 'Supabase credentials not configured' });
+
   try {
     const { data, error } = await supabase
       .from('users')
@@ -109,6 +135,9 @@ app.get('/api/users', async (req, res) => {
 });
 
 app.post('/api/users', async (req, res) => {
+  const supabase = getSupabaseClient();
+  if (!supabase) return res.status(500).json({ error: 'Supabase credentials not configured' });
+
   const { username, password, role } = req.body;
   if (!username || !password || !role) return res.status(400).json({ error: 'Incomplete user data' });
 
@@ -126,6 +155,9 @@ app.post('/api/users', async (req, res) => {
 });
 
 app.put('/api/users/:id', async (req, res) => {
+  const supabase = getSupabaseClient();
+  if (!supabase) return res.status(500).json({ error: 'Supabase credentials not configured' });
+
   const { username, password, role } = req.body;
   try {
     const { data, error } = await supabase
@@ -142,6 +174,9 @@ app.put('/api/users/:id', async (req, res) => {
 });
 
 app.delete('/api/users/:id', async (req, res) => {
+  const supabase = getSupabaseClient();
+  if (!supabase) return res.status(500).json({ error: 'Supabase credentials not configured' });
+
   try {
     const { error } = await supabase
       .from('users')
@@ -160,5 +195,8 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(FRONTEND_DIR, 'index.html'));
 });
 
-// EXPORT FOR VERCEL SERVERLESS
+// EXPORT FOR VERCEL SERVERLESS AND TESTING
 module.exports = app;
+module.exports.app = app;
+module.exports.getSupabaseConfig = getSupabaseConfig;
+module.exports.getSupabaseClient = getSupabaseClient;
