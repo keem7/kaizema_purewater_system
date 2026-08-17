@@ -158,7 +158,10 @@ main{max-width:1180px; margin:0 auto; padding:30px 28px 80px;}
   background:var(--ink); color:var(--text); font-size:0.95rem; font-family:'JetBrains Mono',monospace; outline:none;
 }
 input[type="date"]{
-  color-scheme:dark; font-family:'Inter',sans-serif; cursor:pointer;
+  color-scheme:dark; font-family:'Inter',sans-serif; cursor:pointer; box-sizing:border-box;
+}
+input[type="date"]::-webkit-date-and-time-value{
+  text-align:left; line-height:44px; margin:0;
 }
 input[type="date"]::-webkit-calendar-picker-indicator{
   filter:invert(0.8) sepia(1) saturate(5) hue-rotate(140deg); cursor:pointer; padding:2px; opacity:0.85; transition:opacity .15s;
