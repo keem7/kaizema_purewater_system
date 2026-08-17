@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Kaizema Pure Water — Production &amp; Sales</title>
-<link rel="stylesheet" href="styles.css?v=2.3">
+<link rel="stylesheet" href="styles.css?v=2.4">
 <link rel="icon" type="image/jpeg" href="logo.jpg">
 </head>
 <body>
@@ -70,9 +70,9 @@
 
   <nav class="nav-bar">
     <div class="nav-container">
-      <button class="nav-tab active" id="tab-dashboard" onclick="switchTab('dashboard')">📊 Dashboard</button>
-      <button class="nav-tab" id="tab-reports" onclick="switchTab('reports')">📈 Reports &amp; Analytics</button>
-      <button class="nav-tab" id="tab-admin" onclick="switchTab('admin')" style="display:none;">🛠️ Admin Control Center</button>
+      <button class="nav-tab active" id="tab-dashboard" onclick="switchTab('dashboard')">Dashboard</button>
+      <button class="nav-tab" id="tab-reports" onclick="switchTab('reports')">Reports &amp; Analytics</button>
+      <button class="nav-tab" id="tab-admin" onclick="switchTab('admin')" style="display:none;">Admin Control Center</button>
     </div>
   </nav>
 
@@ -98,7 +98,7 @@
         <div class="panel" id="employeePanel">
           <div class="panel-header-flex">
             <div class="section-title" style="margin-bottom:0;"><span>Log a Day</span><span class="line"></span></div>
-            <button class="tool-btn" onclick="toggleCalculatorModal()">🧮 Batch Calculator</button>
+            <button class="tool-btn" onclick="toggleCalculatorModal()">Batch Calculator</button>
           </div>
           
           <div class="form-grid" style="margin-top:16px;">
@@ -153,9 +153,9 @@
           <button class="filter-pill" id="btn-filter-month" onclick="filterRange('month')">This Month</button>
         </div>
         <div class="table-actions">
-          <input type="text" id="searchInput" placeholder="🔍 Search date, notes..." oninput="filterHistory()" class="search-input">
-          <button class="export-btn" onclick="exportCSV()">📥 Export CSV</button>
-          <button class="export-btn" onclick="triggerPrint()">🖨️ Print Report</button>
+          <input type="text" id="searchInput" placeholder="Search date, notes..." oninput="filterHistory()" class="search-input">
+          <button class="export-btn" onclick="exportCSV()">Export CSV</button>
+          <button class="export-btn" onclick="triggerPrint()">Print Report</button>
         </div>
       </div>
 
@@ -258,7 +258,7 @@
 <!-- SHIFT BATCH CALCULATOR MODAL -->
 <div id="calcModal" class="modal-backdrop" style="display:none;">
   <div class="modal">
-    <h2>🧮 Shift Batch &amp; Materials Calculator</h2>
+    <h2>Shift Batch &amp; Materials Calculator</h2>
     <p style="font-size:0.82rem; color:var(--muted); margin-bottom:14px;">Estimate bundle output, expected revenue, and film roll requirements for your shift.</p>
     <div class="field">
       <label for="calcTarget">Target Production (Bundles)</label>
@@ -279,6 +279,6 @@
   </div>
 </div>
 
-<script src="app.js?v=2.3"></script>
+<script src="app.js?v=2.4"></script>
 </body>
 </html>
