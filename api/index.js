@@ -2,13 +2,13 @@
 // Thin Express shell: middleware + static + routes + startup migrations.
 // Kept intentionally small — real logic lives in api/middleware/* and api/routes/*.
 
+require('dotenv').config();
+
 const express = require('express');
 const path = require('path');
 const { getSupabaseConfig, getServiceClient } = require('./middleware/serviceClient');
 const { runMigrations } = require('./middleware/migrate');
 const { refreshFromDb } = require('./middleware/settings');
-
-require('dotenv').config();
 
 const app = express();
 

@@ -1,8 +1,8 @@
 // server.js
 // Local dev entrypoint. Vercel uses api/index.js directly.
 
-const app = require('./api/index.js');
 require('dotenv').config();
+const app = require('./api/index.js');
 
 const PORT = process.env.PORT || 3000;
 
