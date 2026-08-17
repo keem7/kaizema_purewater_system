@@ -1,17 +1,15 @@
-// Kaizema Pure Water — frontend
-// Talks to the Express + Supabase API. JWT in localStorage, Authorization
-// header on every call. Settings (unit price) fetched once on login and
-// refreshed on rehydration.
-
+// Kaizema Pure Water — frontend console logic
 const TOKEN_KEY = 'kaizema-token';
 const USER_KEY = 'kaizema-user';
 
-let UNIT_PRICE = 10; // overridden by /api/settings on login/rehydrate
+let UNIT_PRICE = 10;
 let RECORDS = [];
 let USERS = [];
 let CURRENT_ROLE = 'employee';
 let CURRENT_USER = '';
 let CURRENT_USER_ID = null;
+let CURRENT_TAB = 'dashboard';
+let ACTIVE_FILTER = 'all';
 
 // ---------------- session helpers ----------------
 
@@ -34,6 +32,8 @@ function clearSession() {
   CURRENT_USER = '';
   CURRENT_USER_ID = null;
   UNIT_PRICE = 10;
+  CURRENT_TAB = 'dashboard';
+  ACTIVE_FILTER = 'all';
 }
 
 async function fetchJson(url, options = {}) {
@@ -66,6 +66,8 @@ async function fetchUnitPrice() {
     UNIT_PRICE = res.data.unit_price;
   }
   document.querySelectorAll('[data-bind="unitPrice"]').forEach(el => { el.textContent = UNIT_PRICE; });
+  const input = document.getElementById('unitPriceInput');
+  if (input) input.value = UNIT_PRICE;
 }
 
 // ---------------- auth UI ----------------
@@ -175,6 +177,45 @@ async function tryRehydrate() {
   await initDashboard();
 }
 
+// ---------------- navigation tabs & filters ----------------
+
+function switchTab(tabName) {
+  if (tabName === 'admin' && CURRENT_ROLE !== 'admin') return;
+  CURRENT_TAB = tabName;
+  document.querySelectorAll('.tab-view').forEach(el => { el.style.display = 'none'; });
+  document.querySelectorAll('.nav-tab').forEach(el => { el.classList.remove('active'); });
+
+  if (tabName === 'admin') {
+    document.getElementById('viewAdmin').style.display = 'block';
+    document.getElementById('tab-admin').classList.add('active');
+    renderUsers();
+  } else if (tabName === 'reports') {
+    document.getElementById('viewReports').style.display = 'block';
+    document.getElementById('tab-reports').classList.add('active');
+    renderReports();
+  } else {
+    document.getElementById('viewDashboard').style.display = 'block';
+    document.getElementById('tab-dashboard').classList.add('active');
+    renderChart();
+  }
+}
+
+function setDateShortcut(type) {
+  const input = document.getElementById('f_date');
+  if (!input) return;
+  const d = new Date();
+  if (type === 'yesterday') d.setDate(d.getDate() - 1);
+  input.value = d.toISOString().slice(0, 10);
+}
+
+function filterRange(preset) {
+  ACTIVE_FILTER = preset;
+  document.querySelectorAll('.filter-pill').forEach(el => el.classList.remove('active'));
+  const btn = document.getElementById(`btn-filter-${preset}`);
+  if (btn) btn.classList.add('active');
+  renderHistory();
+}
+
 // ---------------- formatters / utilities ----------------
 
 function fmt(n) { return Number(n || 0).toLocaleString(); }
@@ -212,6 +253,16 @@ function renderKPIs() {
   const grid = document.getElementById('kpiGrid');
   const last = RECORDS[RECORDS.length - 1];
   const prev = RECORDS[RECORDS.length - 2];
+
+  // Daily target progress
+  const targetVal = document.getElementById('targetVal');
+  const targetFill = document.getElementById('targetFill');
+  const todayRecord = RECORDS.find(r => r.date === todayISO()) || last;
+  const todayProduced = todayRecord ? todayRecord.produced : 0;
+  const targetGoal = 500;
+  const targetPct = Math.min(100, Math.round((todayProduced / targetGoal) * 100));
+  if (targetVal) targetVal.textContent = `${fmt(todayProduced)} / ${targetGoal} (${targetPct}%)`;
+  if (targetFill) targetFill.style.width = `${targetPct}%`;
 
   if (!last) {
     grid.innerHTML = `<div class="panel" style="grid-column:1/-1;"><div class="empty-state">No records yet — log today's numbers below.</div></div>`;
@@ -278,6 +329,7 @@ function renderKPIs() {
 
 function renderChart() {
   const host = document.getElementById('chartHost');
+  if (!host || host.clientWidth === 0) return;
   const last7 = RECORDS.slice(-7);
   if (last7.length === 0) {
     host.innerHTML = `<div class="empty-state">Nothing to chart yet.</div>`;
@@ -313,17 +365,31 @@ function renderHistory() {
   const body = document.getElementById('historyBody');
   const empty = document.getElementById('emptyState');
   const wrap = document.querySelector('.table-wrap');
-  if (RECORDS.length === 0) {
-    wrap.style.display = 'none';
-    empty.style.display = 'block';
+  if (!body) return;
+
+  let filtered = [...RECORDS];
+  const now = new Date();
+  if (ACTIVE_FILTER === 'week') {
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(now.getDate() - 7);
+    filtered = filtered.filter(r => new Date(r.date) >= oneWeekAgo);
+  } else if (ACTIVE_FILTER === 'month') {
+    const oneMonthAgo = new Date();
+    oneMonthAgo.setDate(now.getDate() - 30);
+    filtered = filtered.filter(r => new Date(r.date) >= oneMonthAgo);
+  }
+
+  if (filtered.length === 0) {
+    if (wrap) wrap.style.display = 'none';
+    if (empty) empty.style.display = 'block';
     return;
   }
-  wrap.style.display = 'block';
-  empty.style.display = 'none';
+  if (wrap) wrap.style.display = 'block';
+  if (empty) empty.style.display = 'none';
 
-  const rows = [...RECORDS].reverse().map((r, idxRev) => {
-    const idx = RECORDS.length - 1 - idxRev;
-    const prev = RECORDS[idx - 1];
+  const rows = [...filtered].reverse().map((r, idxRev) => {
+    const idx = filtered.length - 1 - idxRev;
+    const prev = filtered[idx - 1];
     const revenue = r.sold * UNIT_PRICE;
     const sellThrough = r.produced > 0 ? ((r.sold / r.produced) * 100).toFixed(1) : '0.0';
     const dRev = prev ? pctChange(revenue, prev.sold * UNIT_PRICE) : null;
@@ -333,10 +399,153 @@ function renderHistory() {
       const arrow = dRev >= 0 ? '▲' : '▼';
       deltaCell = `<span class="badge ${cls}">${arrow} ${Math.abs(dRev).toFixed(1)}%</span>`;
     }
+    const notesStr = escapeHtml(r.notes || '—');
     const deleteButton = CURRENT_ROLE === 'admin' ? `<td><button class="row-del" onclick="deleteRecord('${r.date}')">Delete</button></td>` : '<td></td>';
-    return `<tr><td class="mono-cell">${r.date}</td><td class="mono-cell">${fmt(r.produced)}</td><td class="mono-cell">${fmt(r.sold)}</td><td class="mono-cell">${fmt(r.issues)}</td><td class="mono-cell">${sellThrough}%</td><td class="mono-cell">${fmtMoney(revenue)}</td><td>${deltaCell}</td>${deleteButton}</tr>`;
+    return `<tr><td class="mono-cell">${r.date}</td><td class="mono-cell">${fmt(r.produced)}</td><td class="mono-cell">${fmt(r.sold)}</td><td class="mono-cell">${fmt(r.issues)}</td><td class="mono-cell">${sellThrough}%</td><td class="mono-cell">${fmtMoney(revenue)}</td><td>${deltaCell}</td><td style="font-size:0.78rem; color:var(--muted); max-width:180px; overflow:hidden; text-overflow:ellipsis;">${notesStr}</td>${deleteButton}</tr>`;
   }).join('');
   body.innerHTML = rows;
+  filterHistory();
+}
+
+function filterHistory() {
+  const input = document.getElementById('searchInput');
+  if (!input) return;
+  const query = (input.value || '').trim().toLowerCase();
+  const rows = document.querySelectorAll('#historyBody tr');
+  rows.forEach(tr => {
+    const text = tr.textContent.toLowerCase();
+    tr.style.display = text.includes(query) ? '' : 'none';
+  });
+}
+
+function exportCSV() {
+  if (!RECORDS.length) {
+    alert('No records available to export.');
+    return;
+  }
+  const headers = ['Date', 'Bundles Produced', 'Bundles Sold', 'Bundles With Issues', 'Sell-Through (%)', 'Revenue (NLE)', 'Shift Notes'];
+  const csvRows = [headers.join(',')];
+  RECORDS.forEach(r => {
+    const sellThrough = r.produced > 0 ? ((r.sold / r.produced) * 100).toFixed(1) : '0.0';
+    const revenue = r.sold * UNIT_PRICE;
+    const safeNote = `"${String(r.notes || '').replace(/"/g, '""')}"`;
+    csvRows.push([r.date, r.produced, r.sold, r.issues, sellThrough, revenue, safeNote].join(','));
+  });
+
+  const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', `kaizema_production_history_${todayISO()}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+function triggerPrint() {
+  window.print();
+}
+
+// ---------------- shift batch calculator ----------------
+
+function toggleCalculatorModal() {
+  const modal = document.getElementById('calcModal');
+  if (!modal) return;
+  const isShown = modal.style.display !== 'none';
+  modal.style.display = isShown ? 'none' : 'flex';
+  if (!isShown) runBatchCalc();
+}
+
+function runBatchCalc() {
+  const targetInput = document.getElementById('calcTarget');
+  const revEl = document.getElementById('calcRev');
+  const rollsEl = document.getElementById('calcRolls');
+  if (!targetInput || !revEl || !rollsEl) return;
+
+  const target = Number(targetInput.value) || 0;
+  const rev = target * UNIT_PRICE;
+  // ~200 bundles per sachet film roll standard estimate
+  const rolls = (target / 200).toFixed(1);
+
+  revEl.textContent = fmtMoney(rev);
+  rollsEl.textContent = `~ ${rolls} Rolls`;
+}
+
+function applyCalcTarget() {
+  const targetInput = document.getElementById('calcTarget');
+  if (targetInput) {
+    const val = Number(targetInput.value) || 0;
+    document.getElementById('f_produced').value = val;
+    document.getElementById('f_sold').value = val;
+    updateRevenuePreview();
+  }
+  toggleCalculatorModal();
+}
+
+function renderReports() {
+  const host = document.getElementById('reportsGrid');
+  if (!host) return;
+
+  const totalProduced = RECORDS.reduce((sum, r) => sum + r.produced, 0);
+  const totalSold = RECORDS.reduce((sum, r) => sum + r.sold, 0);
+  const totalIssues = RECORDS.reduce((sum, r) => sum + r.issues, 0);
+  const totalRevenue = totalSold * UNIT_PRICE;
+  const avgSellThrough = totalProduced > 0 ? ((totalSold / totalProduced) * 100).toFixed(1) : '0.0';
+
+  host.innerHTML = `
+    <div class="report-card">
+      <div class="r-title">Total Lifetime Revenue</div>
+      <div class="r-val">${fmtMoney(totalRevenue)}</div>
+      <div class="r-sub">Across ${RECORDS.length} recorded entry dates</div>
+    </div>
+    <div class="report-card">
+      <div class="r-title">Total Bundles Produced</div>
+      <div class="r-val">${fmt(totalProduced)}</div>
+      <div class="r-sub">Total manufactured units</div>
+    </div>
+    <div class="report-card">
+      <div class="r-title">Total Bundles Sold</div>
+      <div class="r-val">${fmt(totalSold)}</div>
+      <div class="r-sub">Total distributed &amp; sold</div>
+    </div>
+    <div class="report-card">
+      <div class="r-title">Overall Sell-Through</div>
+      <div class="r-val" style="color:var(--good);">${avgSellThrough}%</div>
+      <div class="r-sub">Ratio of sales to production</div>
+    </div>
+    <div class="report-card">
+      <div class="r-title">Total Issues / Leakage</div>
+      <div class="r-val" style="color:var(--bad);">${fmt(totalIssues)}</div>
+      <div class="r-sub">Total damaged / defective bundles</div>
+    </div>
+    <div class="report-card">
+      <div class="r-title">Current Unit Price</div>
+      <div class="r-val" style="color:var(--warn);">NLE ${UNIT_PRICE}</div>
+      <div class="r-sub">Price per bundle sold</div>
+    </div>
+  `;
+}
+
+async function updateUnitPrice() {
+  const input = document.getElementById('unitPriceInput');
+  if (!input) return;
+  const newPrice = Number(input.value);
+  if (!newPrice || newPrice <= 0) {
+    alert('Please enter a valid positive unit price');
+    return;
+  }
+  const res = await fetchJson('/api/settings', {
+    method: 'PUT',
+    body: JSON.stringify({ unit_price: newPrice }),
+  });
+  if (!res.ok) {
+    alert(res.error || 'Could not update unit price');
+    return;
+  }
+  UNIT_PRICE = newPrice;
+  document.querySelectorAll('[data-bind="unitPrice"]').forEach(el => { el.textContent = UNIT_PRICE; });
+  alert(`Unit price successfully updated to NLE ${UNIT_PRICE}`);
+  renderAll();
 }
 
 function updateRevenuePreview() {
@@ -351,6 +560,7 @@ async function saveRecord() {
   const produced = Number(document.getElementById('f_produced').value) || 0;
   const sold = Number(document.getElementById('f_sold').value) || 0;
   const issues = Number(document.getElementById('f_issues').value) || 0;
+  const notes = document.getElementById('f_notes').value.trim();
 
   if (sold + issues > produced) {
     if (!confirm('Sold + issues is more than bundles produced for this date. Save anyway?')) return;
@@ -358,7 +568,7 @@ async function saveRecord() {
 
   const response = await fetchJson('/api/records', {
     method: 'POST',
-    body: JSON.stringify({ date, produced, sold, issues }),
+    body: JSON.stringify({ date, produced, sold, issues, notes }),
   });
   if (!response.ok) {
     alert(response.error || 'Could not save');
@@ -369,6 +579,7 @@ async function saveRecord() {
   document.getElementById('f_produced').value = '';
   document.getElementById('f_sold').value = '';
   document.getElementById('f_issues').value = '';
+  document.getElementById('f_notes').value = '';
   updateRevenuePreview();
 }
 
@@ -413,15 +624,15 @@ function renderUsers() {
     const safeRole = escapeHtml(user.role);
     const isSelf = user.id === CURRENT_USER_ID;
     return `
-    <div class="panel" style="padding:14px;">
+    <div class="panel" style="padding:16px;">
       <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
         <div>
-          <div class="mono" style="font-weight:700;">${safeUsername}</div>
-          <div style="font-size:0.78rem; color:var(--muted); text-transform:uppercase;">${safeRole}</div>
+          <div class="mono" style="font-weight:700; font-size:1rem; color:var(--text);">${safeUsername}</div>
+          <div style="font-size:0.75rem; color:var(--muted); text-transform:uppercase; margin-top:2px;">Role: <span class="mono" style="color:var(--cyan);">${safeRole}</span></div>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button class="row-del" data-action="edit-user" data-id="${user.id}" data-username="${safeUsername}" data-role="${safeRole}">Edit</button>
-          <button class="row-del" data-action="reset-user" data-id="${user.id}" data-username="${safeUsername}">Reset password</button>
+          <button class="row-del" data-action="reset-user" data-id="${user.id}" data-username="${safeUsername}">Reset pass</button>
           ${isSelf ? '' : `<button class="row-del danger" data-action="delete-user" data-id="${user.id}" data-username="${safeUsername}">Delete</button>`}
         </div>
       </div>
@@ -542,19 +753,26 @@ function renderAll() {
   document.getElementById('userLabel').textContent = CURRENT_USER;
   document.getElementById('roleBadge').textContent = CURRENT_ROLE === 'admin' ? 'ADMIN' : 'EMPLOYEE';
   document.getElementById('roleBadge').className = CURRENT_ROLE === 'admin' ? 'badge admin' : 'badge employee';
-  document.getElementById('adminPanel').style.display = CURRENT_ROLE === 'admin' ? 'block' : 'none';
-  document.getElementById('employeePanel').style.display = CURRENT_ROLE === 'employee' ? 'block' : 'none';
+  
+  const adminTab = document.getElementById('tab-admin');
+  if (adminTab) adminTab.style.display = CURRENT_ROLE === 'admin' ? 'inline-flex' : 'none';
+
+  const unitPriceInput = document.getElementById('unitPriceInput');
+  if (unitPriceInput) unitPriceInput.value = UNIT_PRICE;
+
   document.querySelectorAll('[data-bind="unitPrice"]').forEach(el => { el.textContent = UNIT_PRICE; });
   renderKPIs();
   renderChart();
   renderHistory();
-  renderUsers();
+  if (CURRENT_ROLE === 'admin') renderUsers();
+  renderReports();
 }
 
 async function initDashboard() {
   await loadRecords();
   if (CURRENT_ROLE === 'admin') await loadUsers();
   renderAll();
+  switchTab('dashboard');
   window.addEventListener('resize', renderChart);
 }
 
