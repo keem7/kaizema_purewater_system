@@ -76,7 +76,7 @@
       <div class="panel" id="employeePanel">
         <div class="section-title" style="margin-bottom:18px;"><span>Log a Day</span><span class="line"></span></div>
         <div class="form-grid">
-          <div class="full">
+          <div>
             <label for="f_date">Date</label>
             <input type="date" id="f_date">
           </div>
@@ -88,8 +88,8 @@
             <label for="f_sold">Bundles Sold</label>
             <input type="number" min="0" id="f_sold" placeholder="0" oninput="updateRevenuePreview()">
           </div>
-          <div class="full">
-            <label for="f_issues">Bundles With Issues (leakage/damaged)</label>
+          <div>
+            <label for="f_issues">Bundles With Issues</label>
             <input type="number" min="0" id="f_issues" placeholder="0">
           </div>
         </div>
@@ -126,12 +126,13 @@
             </div>
             <div>
               <label for="newUserRole">Role</label>
-              <select id="newUserRole" style="width:100%; padding:10px 12px; border-radius:9px; border:1px solid var(--line); background:var(--ink); color:var(--text);">
+              <select id="newUserRole">
                 <option value="employee">Employee</option>
                 <option value="admin">Admin</option>
               </select>
             </div>
             <div>
+              <label class="btn-label">&nbsp;</label>
               <button class="submit-btn" onclick="createUser()" style="margin-top:0;">Add User</button>
             </div>
           </div>
