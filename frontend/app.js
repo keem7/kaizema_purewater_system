@@ -1,40 +1,74 @@
-const UNIT_PRICE = 10;
+// Kaizema Pure Water — frontend
+// Talks to the Express + Supabase API. JWT in localStorage, Authorization
+// header on every call. Settings (unit price) fetched once on login and
+// refreshed on rehydration.
+
+const TOKEN_KEY = 'kaizema-token';
+const USER_KEY = 'kaizema-user';
+
+let UNIT_PRICE = 10; // overridden by /api/settings on login/rehydrate
 let RECORDS = [];
 let USERS = [];
 let CURRENT_ROLE = 'employee';
 let CURRENT_USER = '';
-let USING_FALLBACK_STORAGE = false;
+let CURRENT_USER_ID = null;
 
-const FALLBACK_USERS = {
-  Musa: { password: 'bangs001', role: 'employee' },
-  Admin: { password: 'admin123', role: 'admin' }
-};
-const STORAGE_KEY = 'kaizema-records';
+// ---------------- session helpers ----------------
 
-function readFallbackRecords() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch (error) {
-    return [];
-  }
+function getToken() { return localStorage.getItem(TOKEN_KEY); }
+function getStoredUser() {
+  try { return JSON.parse(localStorage.getItem(USER_KEY) || 'null'); }
+  catch { return null; }
 }
-
-function writeFallbackRecords() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(RECORDS));
+function saveSession(token, user) {
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
+  CURRENT_ROLE = user.role;
+  CURRENT_USER = user.username;
+  CURRENT_USER_ID = user.id;
+}
+function clearSession() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+  CURRENT_ROLE = 'employee';
+  CURRENT_USER = '';
+  CURRENT_USER_ID = null;
+  UNIT_PRICE = 10;
 }
 
 async function fetchJson(url, options = {}) {
+  const headers = Object.assign({}, options.headers || {});
+  const token = getToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
   try {
-    const response = await fetch(url, options);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const contentType = response.headers.get('content-type') || '';
-    const data = contentType.includes('application/json') ? await response.json() : await response.text();
+    const response = await fetch(url, Object.assign({}, options, { headers }));
+    const ct = response.headers.get('content-type') || '';
+    const data = ct.includes('application/json') ? await response.json() : await response.text();
+    if (response.status === 401) {
+      clearSession();
+      showLogin();
+      return { ok: false, error: 'Session expired — please sign in again.', response };
+    }
+    if (!response.ok) {
+      const errMsg = (data && typeof data === 'object' && data.error) ? data.error : `HTTP ${response.status}`;
+      return { ok: false, error: errMsg, response };
+    }
     return { ok: true, data, response };
   } catch (error) {
-    return { ok: false, error };
+    return { ok: false, error: error.message || String(error) };
   }
 }
+
+async function fetchUnitPrice() {
+  const res = await fetchJson('/api/settings');
+  if (res.ok && res.data && typeof res.data.unit_price === 'number') {
+    UNIT_PRICE = res.data.unit_price;
+  }
+  document.querySelectorAll('[data-bind="unitPrice"]').forEach(el => { el.textContent = UNIT_PRICE; });
+}
+
+// ---------------- auth UI ----------------
 
 function setMessage(msg, kind = 'info') {
   const box = document.getElementById('loginErr');
@@ -43,47 +77,105 @@ function setMessage(msg, kind = 'info') {
   box.style.color = kind === 'error' ? '#FF6B6B' : '#2FD1D9';
 }
 
-async function attemptLogin() {
-  const username = document.getElementById('userInput').value.trim();
-  const password = document.getElementById('passInput').value;
-  const authResult = await fetchJson(`/api/auth?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`);
+function setResetMessage(msg, kind) {
+  const errBox = document.getElementById('resetErr');
+  const okBox = document.getElementById('resetOk');
+  if (errBox) errBox.textContent = kind === 'error' ? msg : '';
+  if (okBox) okBox.textContent = kind === 'ok' ? msg : '';
+}
 
-  if (authResult.ok) {
-    CURRENT_ROLE = authResult.data.role;
-    CURRENT_USER = authResult.data.username;
-    USING_FALLBACK_STORAGE = false;
-    setMessage('');
-    document.getElementById('loginScreen').style.display = 'none';
-    document.getElementById('app').style.display = 'block';
-    initDashboard();
-    return;
-  }
+function showLogin() {
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('loginForm').style.display = 'block';
+  document.getElementById('resetForm').style.display = 'none';
+  setMessage('');
+  setResetMessage('', null);
+}
 
-  const fallbackUser = FALLBACK_USERS[username];
-  if (fallbackUser && fallbackUser.password === password) {
-    CURRENT_ROLE = fallbackUser.role;
-    CURRENT_USER = username;
-    USING_FALLBACK_STORAGE = true;
-    setMessage('');
-    document.getElementById('loginScreen').style.display = 'none';
-    document.getElementById('app').style.display = 'block';
-    initDashboard();
-    return;
-  }
+function showApp() {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+}
 
-  setMessage('Invalid credentials', 'error');
+function toggleResetForm(event) {
+  if (event) event.preventDefault();
+  const login = document.getElementById('loginForm');
+  const reset = document.getElementById('resetForm');
+  const showReset = reset.style.display === 'none';
+  login.style.display = showReset ? 'none' : 'block';
+  reset.style.display = showReset ? 'block' : 'none';
+  setMessage('');
+  setResetMessage('', null);
 }
 
 document.getElementById('passInput').addEventListener('keydown', e => { if (e.key === 'Enter') attemptLogin(); });
 document.getElementById('userInput').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('passInput').focus(); });
 
+async function attemptLogin() {
+  const username = document.getElementById('userInput').value.trim();
+  const password = document.getElementById('passInput').value;
+  setMessage('');
+  if (!username || !password) { setMessage('Enter username and password', 'error'); return; }
+
+  const res = await fetchJson('/api/auth', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  });
+  if (!res.ok) { setMessage(res.error || 'Invalid credentials', 'error'); return; }
+
+  saveSession(res.data.token, res.data.user);
+  await fetchUnitPrice();
+  showApp();
+  await initDashboard();
+}
+
+async function applyResetCode() {
+  const username = document.getElementById('resetUsername').value.trim();
+  const code = document.getElementById('resetCode').value.trim();
+  const newPassword = document.getElementById('resetNewPassword').value;
+  setResetMessage('', null);
+  if (!username || !code || !newPassword) {
+    setResetMessage('All fields are required', 'error'); return;
+  }
+  if (newPassword.length < 8) {
+    setResetMessage('New password must be at least 8 characters', 'error'); return;
+  }
+  const res = await fetchJson('/api/auth/reset', {
+    method: 'POST',
+    body: JSON.stringify({ username, code, newPassword }),
+  });
+  if (!res.ok) { setResetMessage(res.error || 'Could not reset password', 'error'); return; }
+  setResetMessage('Password updated. Please sign in.', 'ok');
+  document.getElementById('userInput').value = username;
+  document.getElementById('passInput').value = '';
+  toggleResetForm();
+}
+
 function logout() {
-  document.getElementById('app').style.display = 'none';
-  document.getElementById('loginScreen').style.display = 'flex';
+  clearSession();
   document.getElementById('userInput').value = '';
   document.getElementById('passInput').value = '';
-  setMessage('');
+  showLogin();
 }
+
+// ---------------- rehydration ----------------
+
+async function tryRehydrate() {
+  const token = getToken();
+  const user = getStoredUser();
+  if (!token || !user) { showLogin(); return; }
+  const res = await fetchJson('/api/auth/me');
+  if (!res.ok) { clearSession(); showLogin(); return; }
+  CURRENT_ROLE = res.data.user.role;
+  CURRENT_USER = res.data.user.username;
+  CURRENT_USER_ID = res.data.user.id;
+  await fetchUnitPrice();
+  showApp();
+  await initDashboard();
+}
+
+// ---------------- formatters / utilities ----------------
 
 function fmt(n) { return Number(n || 0).toLocaleString(); }
 function fmtMoney(n) { return 'NLE ' + Number(n || 0).toLocaleString(); }
@@ -113,6 +205,8 @@ function sachetGauge(pct, color) {
     </g>
   </svg>`;
 }
+
+// ---------------- render ----------------
 
 function renderKPIs() {
   const grid = document.getElementById('kpiGrid');
@@ -250,6 +344,8 @@ function updateRevenuePreview() {
   document.getElementById('revenuePreview').textContent = fmtMoney(sold * UNIT_PRICE);
 }
 
+// ---------------- records ----------------
+
 async function saveRecord() {
   const date = document.getElementById('f_date').value || todayISO();
   const produced = Number(document.getElementById('f_produced').value) || 0;
@@ -260,25 +356,9 @@ async function saveRecord() {
     if (!confirm('Sold + issues is more than bundles produced for this date. Save anyway?')) return;
   }
 
-  if (USING_FALLBACK_STORAGE) {
-    const existingIdx = RECORDS.findIndex(r => r.date === date);
-    const record = { date, produced, sold, issues };
-    if (existingIdx >= 0) RECORDS[existingIdx] = record;
-    else RECORDS.push(record);
-    RECORDS.sort((a, b) => a.date.localeCompare(b.date));
-    writeFallbackRecords();
-    renderAll();
-    document.getElementById('f_produced').value = '';
-    document.getElementById('f_sold').value = '';
-    document.getElementById('f_issues').value = '';
-    updateRevenuePreview();
-    return;
-  }
-
   const response = await fetchJson('/api/records', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ date, produced, sold, issues })
+    body: JSON.stringify({ date, produced, sold, issues }),
   });
   if (!response.ok) {
     alert(response.error || 'Could not save');
@@ -294,13 +374,6 @@ async function saveRecord() {
 
 async function deleteRecord(date) {
   if (!confirm(`Delete the record for ${date}?`)) return;
-  if (USING_FALLBACK_STORAGE) {
-    RECORDS = RECORDS.filter(r => r.date !== date);
-    writeFallbackRecords();
-    renderAll();
-    return;
-  }
-
   const response = await fetchJson(`/api/records/${date}`, { method: 'DELETE' });
   if (!response.ok) {
     alert(response.error || 'Could not delete');
@@ -315,11 +388,17 @@ async function loadRecords() {
   if (response.ok) {
     RECORDS = response.data || [];
     RECORDS.sort((a, b) => a.date.localeCompare(b.date));
-    return;
+  } else {
+    RECORDS = [];
   }
-  RECORDS = readFallbackRecords();
-  USING_FALLBACK_STORAGE = true;
-  RECORDS.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// ---------------- users ----------------
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
 }
 
 function renderUsers() {
@@ -329,84 +408,133 @@ function renderUsers() {
     host.innerHTML = '<div class="empty-state">No users yet.</div>';
     return;
   }
-  host.innerHTML = USERS.map(user => `
+  host.innerHTML = USERS.map(user => {
+    const safeUsername = escapeHtml(user.username);
+    const safeRole = escapeHtml(user.role);
+    const isSelf = user.id === CURRENT_USER_ID;
+    return `
     <div class="panel" style="padding:14px;">
       <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
         <div>
-          <div class="mono" style="font-weight:700;">${user.username}</div>
-          <div style="font-size:0.78rem; color:var(--muted); text-transform:uppercase;">${user.role}</div>
+          <div class="mono" style="font-weight:700;">${safeUsername}</div>
+          <div style="font-size:0.78rem; color:var(--muted); text-transform:uppercase;">${safeRole}</div>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button class="row-del" onclick="editUser(${user.id}, '${user.username}', '${user.password}', '${user.role}')">Edit</button>
-          <button class="row-del" onclick="deleteUser(${user.id})">Delete</button>
+          <button class="row-del" data-action="edit-user" data-id="${user.id}" data-username="${safeUsername}" data-role="${safeRole}">Edit</button>
+          <button class="row-del" data-action="reset-user" data-id="${user.id}" data-username="${safeUsername}">Reset password</button>
+          ${isSelf ? '' : `<button class="row-del danger" data-action="delete-user" data-id="${user.id}" data-username="${safeUsername}">Delete</button>`}
         </div>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 async function createUser() {
   const username = document.getElementById('newUserName').value.trim();
   const password = document.getElementById('newUserPassword').value;
   const role = document.getElementById('newUserRole').value;
-  if (!username || !password) {
-    alert('Please fill in both username and password');
-    return;
-  }
+  if (!username || !password) { alert('Please fill in both username and password'); return; }
+  if (password.length < 8) { alert('Password must be at least 8 characters'); return; }
   const response = await fetchJson('/api/users', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password, role })
+    body: JSON.stringify({ username, password, role }),
   });
-  if (!response.ok) {
-    alert(response.error || 'Could not create user');
-    return;
-  }
+  if (!response.ok) { alert(response.error || 'Could not create user'); return; }
   document.getElementById('newUserName').value = '';
   document.getElementById('newUserPassword').value = '';
   await loadUsers();
   renderUsers();
 }
 
-function editUser(id, username, password, role) {
-  const newName = prompt('Edit username', username);
+async function editUser(id, currentUsername, currentRole) {
+  const newName = prompt('Edit username', currentUsername);
   if (newName === null) return;
-  const newPassword = prompt('Edit password', password);
-  if (newPassword === null) return;
-  const newRole = prompt('Edit role (employee/admin)', role);
+  const trimmed = newName.trim();
+  if (!trimmed) { alert('Username cannot be empty'); return; }
+  const newRole = prompt('Edit role (employee/admin)', currentRole);
   if (newRole === null) return;
-  if (!['employee', 'admin'].includes(newRole)) {
-    alert('Role must be employee or admin');
-    return;
-  }
-  fetchJson(`/api/users/${id}`, {
+  if (!['employee', 'admin'].includes(newRole)) { alert('Role must be employee or admin'); return; }
+
+  const newPassword = prompt('Set a new password (leave blank to keep current). At least 8 characters.', '');
+  if (newPassword === null) return;
+  if (newPassword && newPassword.length < 8) { alert('Password must be at least 8 characters'); return; }
+
+  const body = { username: trimmed, role: newRole };
+  if (newPassword) body.password = newPassword;
+
+  const res = await fetchJson(`/api/users/${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: newName, password: newPassword, role: newRole })
-  }).then(() => {
-    loadUsers().then(renderUsers);
+    body: JSON.stringify(body),
   });
+  if (!res.ok) { alert(res.error || 'Could not update user'); return; }
+  await loadUsers();
+  renderUsers();
+}
+
+async function triggerPasswordReset(id, username) {
+  const res = await fetchJson('/api/auth/forgot', {
+    method: 'POST',
+    body: JSON.stringify({ user_id: id }),
+  });
+  if (!res.ok) { alert(res.error || 'Could not issue reset code'); return; }
+  showResetCodeModal(res.data);
+}
+
+function showResetCodeModal(data) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
+
+  const safeUsername = escapeHtml(data.user.username);
+  const safeCode = escapeHtml(data.code);
+  const safeExpires = escapeHtml(new Date(data.expires_at).toLocaleString());
+
+  backdrop.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true">
+      <h2>Reset code for ${safeUsername}</h2>
+      <p style="font-size:0.85rem; color:var(--muted); margin-bottom:12px;">
+        Share this code with the user. It expires in 15 minutes and can be used only once.
+      </p>
+      <div class="code-display" onclick="navigator.clipboard && navigator.clipboard.writeText('${safeCode}')" title="Click to copy">${safeCode}</div>
+      <div class="expires">Expires: ${safeExpires}</div>
+      <div class="actions">
+        <button class="login-btn" onclick="navigator.clipboard && navigator.clipboard.writeText('${safeCode}'); this.textContent='Copied'">Copy code</button>
+        <button class="row-del" onclick="this.closest('.modal-backdrop').remove()">Close</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
 }
 
 async function deleteUser(id) {
   if (!confirm('Delete this user?')) return;
   const response = await fetchJson(`/api/users/${id}`, { method: 'DELETE' });
-  if (!response.ok) {
-    alert(response.error || 'Could not delete user');
-    return;
-  }
+  if (!response.ok) { alert(response.error || 'Could not delete user'); return; }
   await loadUsers();
   renderUsers();
 }
 
 async function loadUsers() {
   const response = await fetchJson('/api/users');
-  if (!response.ok) {
-    USERS = [];
-    return;
-  }
-  USERS = response.data || [];
+  USERS = response.ok ? (response.data || []) : [];
 }
+
+// ---------------- delegated handlers ----------------
+
+document.addEventListener('click', (event) => {
+  const btn = event.target.closest('[data-action]');
+  if (!btn) return;
+  const action = btn.getAttribute('data-action');
+  const id = btn.getAttribute('data-id');
+  const username = btn.getAttribute('data-username');
+  const role = btn.getAttribute('data-role');
+  if (action === 'edit-user') editUser(id, username, role);
+  else if (action === 'reset-user') triggerPasswordReset(id, username);
+  else if (action === 'delete-user') deleteUser(id);
+});
+
+// ---------------- bootstrap ----------------
 
 function renderAll() {
   document.getElementById('todayPill').textContent = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -416,6 +544,7 @@ function renderAll() {
   document.getElementById('roleBadge').className = CURRENT_ROLE === 'admin' ? 'badge admin' : 'badge employee';
   document.getElementById('adminPanel').style.display = CURRENT_ROLE === 'admin' ? 'block' : 'none';
   document.getElementById('employeePanel').style.display = CURRENT_ROLE === 'employee' ? 'block' : 'none';
+  document.querySelectorAll('[data-bind="unitPrice"]').forEach(el => { el.textContent = UNIT_PRICE; });
   renderKPIs();
   renderChart();
   renderHistory();
@@ -424,7 +553,7 @@ function renderAll() {
 
 async function initDashboard() {
   await loadRecords();
-  await loadUsers();
+  if (CURRENT_ROLE === 'admin') await loadUsers();
   renderAll();
   window.addEventListener('resize', renderChart);
 }
@@ -442,3 +571,6 @@ async function initDashboard() {
     document.body.appendChild(d);
   }
 })();
+
+// Page load — try to rehydrate from localStorage, otherwise show login.
+tryRehydrate();
