@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "tauri dev",
-    "build": "tauri build",
+    "build:desktop": "tauri build",
     "test": "node --test api/server.test.js"
   },
   "dependencies": {

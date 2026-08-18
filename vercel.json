@@ -1,7 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "echo skipping build",
-  "installCommand": "npm install --omit=dev",
+  "installCommand": "npm install",
   "rewrites": [
     {
       "source": "/api/(.*)",
