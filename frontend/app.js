@@ -1,6 +1,12 @@
 // Kaizema Pure Water — frontend console logic
 const TOKEN_KEY = 'kaizema-token';
 const USER_KEY = 'kaizema-user';
+// Always call the deployed backend. Tauri's WebView reports an internal host
+// (not "localhost"), so checking location.hostname here used to silently
+// point production installs at a non-existent local server. Hard-coding the
+// Vercel URL keeps the installed EXE and the browser build working off the
+// same API.
+const API_BASE = 'https://kaizema-purewater-system.vercel.app';
 
 let UNIT_PRICE = 10;
 let RECORDS = [];
@@ -41,8 +47,11 @@ async function fetchJson(url, options = {}) {
   const token = getToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
   if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
   try {
-    const response = await fetch(url, Object.assign({}, options, { headers }));
+    const response = await fetch(API_BASE + url, Object.assign({}, options, { headers, signal: controller.signal }));
+    clearTimeout(timer);
     const ct = response.headers.get('content-type') || '';
     const data = ct.includes('application/json') ? await response.json() : await response.text();
     if (response.status === 401) {
@@ -56,7 +65,8 @@ async function fetchJson(url, options = {}) {
     }
     return { ok: true, data, response };
   } catch (error) {
-    return { ok: false, error: error.message || String(error) };
+    clearTimeout(timer);
+    return { ok: false, error: error.name === 'AbortError' ? 'Request timed out — server may not be running.' : (error.message || String(error)) };
   }
 }
 
@@ -115,21 +125,29 @@ document.getElementById('passInput').addEventListener('keydown', e => { if (e.ke
 document.getElementById('userInput').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('passInput').focus(); });
 
 async function attemptLogin() {
+  const btn = document.querySelector('#loginForm .login-btn');
   const username = document.getElementById('userInput').value.trim();
   const password = document.getElementById('passInput').value;
   setMessage('');
   if (!username || !password) { setMessage('Enter username and password', 'error'); return; }
 
-  const res = await fetchJson('/api/auth', {
-    method: 'POST',
-    body: JSON.stringify({ username, password }),
-  });
-  if (!res.ok) { setMessage(res.error || 'Invalid credentials', 'error'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Signing in...'; }
+  try {
+    const res = await fetchJson('/api/auth', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+    if (!res.ok) { setMessage(res.error || 'Invalid credentials', 'error'); return; }
 
-  saveSession(res.data.token, res.data.user);
-  await fetchUnitPrice();
-  showApp();
-  await initDashboard();
+    saveSession(res.data.token, res.data.user);
+    await fetchUnitPrice();
+    showApp();
+    await initDashboard();
+  } catch (err) {
+    setMessage('Connection failed — is the server running?', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Sign in'; }
+  }
 }
 
 async function applyResetCode() {
